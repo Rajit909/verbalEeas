@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Sparkles } from 'lucide-react';
+import { Mic, Square, Sparkles, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -11,12 +11,23 @@ import { VerbalEaseAvatar } from '@/components/VerbalEaseAvatar';
 import { ChatMessage, type ChatMessageProps } from '@/components/ChatMessage';
 import { getConversationResponseAction, getPersonalizedSuggestionAction, synthesizeSpeechAction, transcribeAudioAction } from './actions';
 import { cn } from '@/lib/utils';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 export default function Home() {
   const { toast } = useToast();
   const [chatHistory, setChatHistory] = useState<ChatMessageProps[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voice, setVoice] = useState('Algenib');
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -40,7 +51,7 @@ export default function Home() {
       
       setChatHistory(prev => [...prev, { role: 'assistant', content: response }]);
       
-      const { media } = await synthesizeSpeechAction(response);
+      const { media } = await synthesizeSpeechAction({text: response, voice});
       playAudio(media);
     } catch (error) {
       console.error("An error occurred:", error);
@@ -107,7 +118,7 @@ export default function Home() {
       
       setChatHistory(prev => [...prev, { role: 'assistant', content: suggestionText }]);
 
-      const { media } = await synthesizeSpeechAction(suggestionText);
+      const { media } = await synthesizeSpeechAction({text: suggestionText, voice});
       playAudio(media);
 
     } catch (error) {
@@ -131,8 +142,40 @@ export default function Home() {
 
   return (
     <div className="flex flex-col h-[100dvh] bg-background text-foreground font-body">
-      <header className="p-4 border-b shrink-0 flex items-center justify-center">
+      <header className="p-4 border-b shrink-0 flex items-center justify-between">
         <h1 className="text-2xl font-headline font-bold">VerbalEase</h1>
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <Settings className="w-5 h-5" />
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Settings</DialogTitle>
+              <DialogDescription>
+                Choose the voice for VerbalEase.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <Label>Voice</Label>
+              <RadioGroup value={voice} onValueChange={setVoice}>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="Algenib" id="algenib" />
+                  <Label htmlFor="algenib">American English (Default)</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="Hadar" id="hadar" />
+                  <Label htmlFor="hadar">Indian English</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="Achernar" id="achernar" />
+                  <Label htmlFor="achernar">British English</Label>
+                </div>
+              </RadioGroup>
+            </div>
+          </DialogContent>
+        </Dialog>
       </header>
       
       <main className="flex-grow flex flex-col items-center justify-center p-4">
