@@ -17,16 +17,51 @@ export default function Home() {
   const [chatHistory, setChatHistory] = useState<ChatMessageProps[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const handleAudioProcessing = async (audioDataUri: string) => {
+    setIsLoading(true);
+    try {
+      const { transcription } = await transcribeAudioAction({ audioDataUri });
+      if (!transcription?.trim()) {
+        setIsLoading(false);
+        return;
+      }
+      
+      setChatHistory(prev => [...prev, { role: 'user', content: transcription }]);
+      
+      const currentHistory = [...chatHistory, { role: 'user', content: transcription }];
+      const { response } = await getConversationResponseAction({
+        userInput: transcription,
+        chatHistory: currentHistory.map(({ role, content }) => ({ role: role === 'assistant' ? 'assistant' : 'user', content })),
+      });
+      
+      setChatHistory(prev => [...prev, { role: 'assistant', content: response }]);
+      
+      const { media } = await synthesizeSpeechAction(response);
+      playAudio(media);
+    } catch (error) {
+      console.error("An error occurred:", error);
+      toast({
+        variant: "destructive",
+        title: "An error occurred",
+        description: "Could not process your request. Please try again.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const { isRecording, startRecording, stopRecording } = useRecorder({
     onPermissionError: () => toast({
       variant: "destructive",
       title: "Microphone permission denied",
       description: "Please allow microphone access in your browser settings.",
     }),
+    onStop: handleAudioProcessing,
   });
-  
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -54,33 +89,7 @@ export default function Home() {
 
   const handleRecordClick = async () => {
     if (isRecording) {
-      setIsLoading(true);
-      try {
-        const audioDataUri = await stopRecording();
-        const { transcription } = await transcribeAudioAction({ audioDataUri });
-        
-        setChatHistory(prev => [...prev, { role: 'user', content: transcription }]);
-        
-        const currentHistory = [...chatHistory, { role: 'user', content: transcription }];
-        const { response } = await getConversationResponseAction({
-          userInput: transcription,
-          chatHistory: currentHistory,
-        });
-        
-        setChatHistory(prev => [...prev, { role: 'assistant', content: response }]);
-        
-        const { media } = await synthesizeSpeechAction(response);
-        playAudio(media);
-      } catch (error) {
-        console.error("An error occurred:", error);
-        toast({
-          variant: "destructive",
-          title: "An error occurred",
-          description: "Could not process your request. Please try again.",
-        });
-      } finally {
-        setIsLoading(false);
-      }
+      stopRecording();
     } else {
       startRecording();
     }
@@ -114,10 +123,9 @@ export default function Home() {
   };
 
   const getStatusText = () => {
-    if (isLoading && isRecording) return "Processing...";
     if (isLoading) return "Thinking...";
     if (isSpeaking) return "Speaking...";
-    if (isRecording) return "Recording... Press button to stop";
+    if (isRecording) return "Listening... I'll think when you pause.";
     return "Press the mic to start talking";
   };
 
@@ -163,7 +171,7 @@ export default function Home() {
           <Button 
             size="icon" 
             onClick={handleRecordClick} 
-            disabled={isLoading && !isRecording} 
+            disabled={isLoading} 
             className={cn("w-20 h-20 rounded-full text-primary-foreground shadow-lg transform active:scale-95 transition-all duration-300", 
               isRecording ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'
             )}
