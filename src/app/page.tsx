@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Sparkles, Settings } from 'lucide-react';
+import { Mic, Square, Sparkles, Settings, Loader } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -26,7 +26,9 @@ export default function Home() {
   const { toast } = useToast();
   const [chatHistory, setChatHistory] = useState<ChatMessageProps[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSynthesizing, setIsSynthesizing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isConversationVisible, setIsConversationVisible] = useState(false);
   const [voice, setVoice] = useState('Algenib');
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -41,16 +43,19 @@ export default function Home() {
         return;
       }
       
-      setChatHistory(prev => [...prev, { role: 'user', content: transcription }]);
+      const userMessage: ChatMessageProps = { role: 'user', content: transcription };
+      setChatHistory(prev => [...prev, userMessage]);
       
-      const currentHistory = [...chatHistory, { role: 'user', content: transcription }];
+      const currentHistory = [...chatHistory, userMessage];
       const { response } = await getConversationResponseAction({
         userInput: transcription,
         chatHistory: currentHistory.map(({ role, content }) => ({ role: role === 'assistant' ? 'assistant' : 'user', content })),
       });
       
       setChatHistory(prev => [...prev, { role: 'assistant', content: response }]);
+      setIsLoading(false);
       
+      setIsSynthesizing(true);
       const { media } = await synthesizeSpeechAction({text: response, voice});
       playAudio(media);
     } catch (error) {
@@ -60,9 +65,9 @@ export default function Home() {
         title: "An error occurred",
         description: "Could not process your request. Please try again.",
       });
-    } finally {
       setIsLoading(false);
-    }
+      setIsSynthesizing(false);
+    } 
   };
 
   const { isRecording, startRecording, stopRecording } = useRecorder({
@@ -88,10 +93,18 @@ export default function Home() {
     }
     const audio = new Audio(dataUri);
     audioRef.current = audio;
+    
     setIsSpeaking(true);
+    setIsSynthesizing(false);
+    
     audio.play().catch(e => {
       console.error("Error playing audio:", e);
       setIsSpeaking(false);
+      toast({
+        variant: "destructive",
+        title: "Audio Playback Error",
+        description: "Could not play the audio response.",
+      });
     });
     audio.onended = () => {
       setIsSpeaking(false);
@@ -117,7 +130,9 @@ export default function Home() {
       const suggestionText = `Here's a suggestion for you: ${suggestion}`;
       
       setChatHistory(prev => [...prev, { role: 'assistant', content: suggestionText }]);
+      setIsLoading(false);
 
+      setIsSynthesizing(true);
       const { media } = await synthesizeSpeechAction({text: suggestionText, voice});
       playAudio(media);
 
@@ -128,13 +143,14 @@ export default function Home() {
         title: "Could not get suggestion",
         description: "Please try again after a few more messages.",
       });
-    } finally {
       setIsLoading(false);
+      setIsSynthesizing(false);
     }
   };
 
   const getStatusText = () => {
     if (isLoading) return "Thinking...";
+    if (isSynthesizing) return "Generating audio...";
     if (isSpeaking) return "Speaking...";
     if (isRecording) return "Listening... I'll think when you pause.";
     return "Press the mic to start talking";
@@ -179,16 +195,16 @@ export default function Home() {
       </header>
       
       <main className="flex-grow flex flex-col items-center justify-center p-4">
-        <VerbalEaseAvatar isSpeaking={isSpeaking} isThinking={isLoading} />
+        <VerbalEaseAvatar isSpeaking={isSpeaking} isThinking={isLoading || isSynthesizing} />
         <p className="mt-4 h-6 text-center text-muted-foreground transition-all duration-300">
           {getStatusText()}
         </p>
       </main>
 
-      <Collapsible className="shrink-0">
+      <Collapsible open={isConversationVisible} onOpenChange={setIsConversationVisible} className="shrink-0">
         <CollapsibleTrigger asChild>
           <div className="text-center p-2 cursor-pointer border-t hover:bg-muted">
-            <Button variant="ghost">Show Conversation</Button>
+            <Button variant="ghost">{isConversationVisible ? 'Hide Conversation' : 'Show Conversation'}</Button>
           </div>
         </CollapsibleTrigger>
         <CollapsibleContent>
@@ -207,14 +223,14 @@ export default function Home() {
       
       <footer className="p-4 border-t bg-background/80 backdrop-blur-sm shrink-0">
         <div className="w-full max-w-md mx-auto flex items-center justify-center space-x-4">
-          <Button variant="outline" size="lg" onClick={handleGetSuggestion} disabled={isLoading || isSpeaking || isRecording || chatHistory.length === 0}>
-            <Sparkles className="w-5 h-5 mr-2 text-accent" />
+          <Button variant="outline" size="lg" onClick={handleGetSuggestion} disabled={isLoading || isSynthesizing || isSpeaking || isRecording || chatHistory.length === 0}>
+            {isSynthesizing && chatHistory.length > 0 ? <Loader className="w-5 h-5 mr-2 animate-spin" /> : <Sparkles className="w-5 h-5 mr-2 text-accent" />}
             Suggest
           </Button>
           <Button 
             size="icon" 
             onClick={handleRecordClick} 
-            disabled={isLoading} 
+            disabled={isLoading || isSynthesizing} 
             className={cn("w-20 h-20 rounded-full text-primary-foreground shadow-lg transform active:scale-95 transition-all duration-300", 
               isRecording ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'
             )}
